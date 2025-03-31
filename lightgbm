@@ -1,0 +1,234 @@
+import pandas as pd
+import numpy as np
+import lightgbm as lgb
+import joblib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from pathlib import Path
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+# ========================
+# Global Configurations
+# ========================
+MIN_SAMPLES_PER_SECTOR = 50
+REPORT_COLS = ['Sector', 'Samples', 'RMSE', 'MSE', 'MAE', 'R²', 'MAPE(%)']
+
+
+# ========================
+# Main Workflow
+# ========================
+def main():
+    # Data loading and preprocessing
+    df = load_and_preprocess()
+
+    # Get valid sectors
+    valid_sectors = get_valid_sectors(df)
+
+    sector_metrics = []
+
+    # Sector-wise modeling
+    for sector in valid_sectors:
+        sector_df = df[df['sector'] == sector].copy()
+        sector_df = sector_df.drop(columns=['sector'])  # Remove sector column
+
+        if len(sector_df) < MIN_SAMPLES_PER_SECTOR:
+            print(f"Skipping {sector}: Insufficient samples ({len(sector_df)})")
+            continue
+
+        print(f"\n{'=' * 40}\nProcessing Sector: {sector} ({len(sector_df)} samples)\n{'=' * 40}")
+
+        # Feature engineering
+        X, y, feature_names, preprocessor = feature_engineering(sector_df)
+
+        # Data splitting
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y, test_size=0.2, random_state=42
+        )
+
+        # Model training
+        model = train_lightgbm(X_train, y_train, X_test, y_test)
+
+        # Model evaluation
+        metrics = evaluate_model(model, X_test, y_test, sector, len(sector_df))
+        sector_metrics.append(metrics)
+
+        # Save pipeline
+        save_pipeline(model, preprocessor, feature_names, sector)
+
+    # Generate report
+    generate_sector_report(pd.DataFrame(sector_metrics, columns=REPORT_COLS))
+
+
+# ========================
+# Data Preprocessing
+# ========================
+def load_and_preprocess():
+    """Data loading and cleaning pipeline"""
+    try:
+        df = pd.read_excel('1.xlsx')
+        print(f"Data loaded successfully. Initial samples: {len(df):,}")
+    except Exception as e:
+        raise ValueError(f"File loading failed: {e}")
+
+    # Column standardization
+    df = df.rename(columns={
+        'horizon (days)': 'holding_period',
+        'expected_return (yearly)': 'expected_return'
+    })
+
+    # Remove irrelevant columns
+    df = df.drop(columns=['company', 'date_BUY_fix', 'date_SELL_fix'], errors='ignore')
+
+    # Label encoding
+    df['investment'] = LabelEncoder().fit_transform(df['investment'])
+
+    # Return calculation
+    df = calculate_returns(df)
+
+    # Outlier handling
+    df = filter_extreme_values(df)
+
+    return df
+
+
+def calculate_returns(df):
+    """Calculate investment returns"""
+    valid_prices = (df['price_BUY'] > 1e-6) & (df['price_SELL'] > 1e-6)
+    df = df[valid_prices].copy()
+
+    df['log_return'] = np.log(df['price_SELL'] / df['price_BUY'])
+    df['annualized_return'] = df['log_return'] * (365 / df['holding_period'].clip(lower=1))
+    df['real_return'] = df['annualized_return'] - df['inflation']
+    return df
+
+
+def filter_extreme_values(df):
+    """Handle outliers using quantile ranges"""
+    lower, upper = df['real_return'].quantile([0.01, 0.99])
+    print(f"Outlier filtering range: [{lower:.4f}, {upper:.4f}]")
+    return df[(df['real_return'] > lower) & (df['real_return'] < upper)]
+
+
+def get_valid_sectors(df):
+    """Get sectors with sufficient samples"""
+    sector_counts = df['sector'].value_counts()
+    return sector_counts[sector_counts >= MIN_SAMPLES_PER_SECTOR].index.tolist()
+
+
+# ========================
+# Feature Engineering
+# ========================
+def feature_engineering(df):
+    """Feature processing pipeline"""
+    numeric_features = [
+        'PE_ratio', 'Volatility_Buy', 'ROE_ratio',
+        'NetProfitMargin_ratio', 'current_ratio', 'PS_ratio',
+        'investment', 'holding_period'
+    ]
+
+    # Data standardization
+    preprocessor = ColumnTransformer([
+        ('scaler', StandardScaler(), numeric_features)
+    ])
+
+    X = preprocessor.fit_transform(df).astype(np.float32)
+    y = df['real_return'].values.astype(np.float32)
+
+    return X, y, numeric_features, preprocessor
+
+
+# ========================
+# Model Training
+# ========================
+def train_lightgbm(X_train, y_train, X_val, y_val):
+    """LightGBM model training"""
+    params = {
+        'objective': 'regression',
+        'metric': 'rmse',
+        'learning_rate': 0.01,
+        'num_leaves': 31,
+        'feature_fraction': 0.8,
+        'bagging_fraction': 0.8,
+        'bagging_freq': 5,
+        'boosting_type': 'gbdt',
+        'verbose': -1
+    }
+
+    train_data = lgb.Dataset(X_train, label=y_train)
+    val_data = lgb.Dataset(X_val, label=y_val, reference=train_data)
+
+    return lgb.train(params, train_data, num_boost_round=1000, valid_sets=[val_data])
+
+
+# ========================
+# Model Evaluation
+# ========================
+def evaluate_model(model, X_test, y_test, sector, n_samples):
+    """Evaluate model performance"""
+    y_pred = model.predict(X_test)
+
+    # Calculate metrics
+    mse = mean_squared_error(y_test, y_pred)
+    rmse = np.sqrt(mse)
+    mae = mean_absolute_error(y_test, y_pred)
+    r2 = r2_score(y_test, y_pred)
+    mape = calculate_mape(y_test, y_pred)
+
+    # Print results
+    print(f"\nEvaluation Results:")
+    print(f"RMSE: {rmse:.4f} | MSE: {mse:.4f} | MAE: {mae:.4f}")
+    print(f"R²: {r2:.4f} | MAPE: {mape:.2f}%")
+
+    return [sector, n_samples, rmse, mse, mae, r2, mape]
+
+
+def calculate_mape(y_true, y_pred):
+    """Calculate Mean Absolute Percentage Error"""
+    epsilon = 1e-9
+    return 100 * np.mean(np.abs((y_true - y_pred) / (np.abs(y_true) + epsilon)))
+
+
+# ========================
+# Model Saving
+# ========================
+def save_pipeline(model, preprocessor, feature_names, sector):
+    """Save modeling pipeline"""
+    safe_name = sector.replace("/", "_").replace(":", "-")
+    save_dir = Path(f"sector_models/{safe_name}")
+    save_dir.mkdir(parents=True, exist_ok=True)
+
+    # Save components
+    model.save_model(save_dir / 'model.txt')
+    joblib.dump(preprocessor, save_dir / 'preprocessor.pkl')
+    pd.Series(feature_names).to_csv(save_dir / 'features.csv', index=False)
+    print(f"Model saved to: {save_dir}")
+
+
+# ========================
+# Report Generation
+# ========================
+def generate_sector_report(metrics_df):
+    """Generate performance report"""
+    # Save Excel
+    metrics_df.sort_values('RMSE').to_excel("Sector_Performance_Report.xlsx", index=False)
+
+    # Visualization
+    plt.figure(figsize=(12, 8))
+    metrics_df.set_index('Sector').plot(
+        kind='barh',
+        subplots=True,
+        layout=(3, 2),
+        figsize=(15, 12),
+        sharex=False
+    )
+    plt.suptitle("Cross-Sector Performance Comparison")
+    plt.tight_layout()
+    plt.savefig('Sector_Comparison.png')
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
