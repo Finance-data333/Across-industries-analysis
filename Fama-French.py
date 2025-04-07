@@ -21,17 +21,17 @@ METRICS_COLUMNS = ['Sector', 'Samples', 'RMSE', 'MAE', 'MSE', 'R2', 'MAPE']
 # Main Pipeline
 # ---------------------------
 def main():
-    # 1. 加载数据
+    # 1. Load data
     df = load_and_preprocess_data()
 
-    # 2. 计算 Fama-French 因子
+    # 2. Calculate Fama-French factor fomular
     df = compute_fama_french_factors(df)
 
-    # 3. 进行行业回归分析
+    # 3. Conduct industry regression analysis
     sector_metrics = []
     valid_sectors = identify_valid_sectors(df)
 
-    # 处理各行业模型
+    # Processing industry model
     for sector in valid_sectors:
         sector_data = df[df['sector'] == sector].copy()
 
@@ -44,48 +44,48 @@ def main():
         metrics = process_sector(sector_data, sector)
         sector_metrics.append(metrics)
 
-    # 4. 添加全局模型
+    # 4. Add global model
     global_data = df[df['sector'].isin(valid_sectors)].copy()
     print(f"\n{'=' * 40}\nProcessing Global Model ({len(global_data)} samples)\n{'=' * 40}")
     global_metrics = process_sector(global_data, "Global")
     sector_metrics.append(global_metrics)
 
-    # 5. 结果分析
+    # 5. Interpretation of result
     analyze_performance(pd.DataFrame(sector_metrics, columns=METRICS_COLUMNS))
 
 # ---------------------------
 # Data Processing
 # ---------------------------
 def load_and_preprocess_data():
-    """加载数据并进行预处理"""
+    """ Load the data and preprocess it"""
     try:
         df = pd.read_excel('1.xlsx')
         print(f"Initial dataset size: {len(df):,}")
     except Exception as e:
         raise ValueError(f"Data loading error: {e}")
 
-    # 重命名列
+    # Renaming Columns
     df = df.rename(columns={
         'horizon (days)': 'holding_period',
         'expected_return (yearly)': 'expected_return'
     })
 
-    # 删除无关列
+    # Delete irrelevant column
     df = df.drop(columns=['company', 'date_BUY_fix', 'date_SELL_fix'], errors='ignore')
 
-    # 处理类别变量
+    # Processing class variable
     df['investment'] = LabelEncoder().fit_transform(df['investment'])
 
-    # 计算收益
+    # Calculate returns
     df = compute_returns(df)
 
-    # 处理异常值
+    # Handle outliers
     df = filter_outliers(df)
 
     return df
 
 def compute_returns(df):
-    """计算收益率"""
+    """ Calculated rate of return"""
     valid_prices = (df['price_BUY'] > 1e-6) & (df['price_SELL'] > 1e-6)
     df = df[valid_prices].copy()
 
@@ -95,7 +95,7 @@ def compute_returns(df):
     return df
 
 def filter_outliers(df):
-    """去除极端值"""
+    """ Removal of extremes"""
     lower, upper = df['real_return'].quantile([0.02, 0.98])
     print(f"Outlier filtering range: [{lower:.4f}, {upper:.4f}]")
     return df[(df['real_return'] > lower) & (df['real_return'] < upper)]
@@ -104,16 +104,16 @@ def filter_outliers(df):
 # Fama-French Factor Calculation
 # ---------------------------
 def compute_fama_french_factors(df):
-    """计算 Fama-French 因子"""
+    """Calcualte Fama-French factor fomular"""
 
-    # 计算 Mkt-RF（市场超额收益）
+    # Calculate Mkt-RF (Market Excess Return)
     df['Mkt_RF'] = df['expected_return'].mean() - df['inflation']
 
-    # 计算 SMB（规模因子）
+    # Calculate SMB (Size factor)
     median_pb = df['PB_ratio'].median()
     df['SMB'] = np.where(df['PB_ratio'] < median_pb, df['nominal_return'], -df['nominal_return'])
 
-    # 计算 HML（价值因子）
+    # Calculate HML (Value factor)
     median_pe = df['PE_ratio'].median()
     df['HML'] = np.where(df['PE_ratio'] < median_pe, df['nominal_return'], -df['nominal_return'])
 
@@ -123,34 +123,34 @@ def compute_fama_french_factors(df):
 # Sector Processing
 # ---------------------------
 def identify_valid_sectors(df):
-    """筛选样本足够的行业"""
+    """ Screen industry of samples enough"""
     sector_counts = df['sector'].value_counts()
     return sector_counts[sector_counts >= MIN_SAMPLES_PER_SECTOR].index.tolist()
 
 def process_sector(sector_df, sector_name):
-    """行业回归分析"""
+    """ Industry regression analysis"""
     X, y = sector_df[['Mkt_RF', 'SMB', 'HML']], sector_df['real_return']
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 使用 OLS 线性回归
+    # Use OLS linear regression 
     model = LinearRegression()
     model.fit(X_train, y_train)
 
-    # 评估模型
+    # Evaluation Model
     metrics = evaluate_model(model, X_test, y_test, sector_name, len(sector_df))
 
-    # SHAP 分析
+    # SHAP analysis
     explain_model_with_shap(model, X_test, sector_name)
 
-    # 保存模型
+    # Conservation of resources model
     Path("models").mkdir(exist_ok=True)
     joblib.dump(model, f"models/model_{sector_name.replace(' ', '_')}.pkl")
 
     return metrics
 
 def evaluate_model(model, X_test, y_test, sector_name, n_samples):
-    """计算回归指标"""
+    """ Calculated regression index"""
     y_pred = model.predict(X_test)
 
     mse = mean_squared_error(y_test, y_pred)
@@ -164,15 +164,15 @@ def evaluate_model(model, X_test, y_test, sector_name, n_samples):
     return [sector_name, n_samples, rmse, mae, mse, r2, mape]
 
 def explain_model_with_shap(model, X_test, sector_name):
-    """使用 SHAP 解释模型"""
+    """Use SHAP interpretation model"""
     explainer = shap.LinearExplainer(model, X_test)
     shap_values = explainer.shap_values(X_test)
 
-    # 保存SHAP值
+    # Save SHAP value
     pd.DataFrame(shap_values, columns=X_test.columns).to_csv(f"shap_values_{sector_name.replace(' ', '_')}.csv",
                                                                     index=False)
 
-    # 生成可视化
+    # Generative visualization
     plt.figure()
     shap.summary_plot(shap_values, X_test, show=False)
     plt.title(f'SHAP Summary - {sector_name}')
@@ -183,18 +183,18 @@ def explain_model_with_shap(model, X_test, sector_name):
 # Result Analysis
 # ---------------------------
 def analyze_performance(metrics_df):
-    """分析各行业及全局模型结果"""
+    """ Analyze industry and global model results"""
     print("\nPerformance Comparison:")
     print(metrics_df.sort_values('RMSE'))
 
-    # 分离全局和行业结果
+    # Separate global and industry results
     global_metrics = metrics_df[metrics_df['Sector'] == 'Global']
     sector_metrics = metrics_df[metrics_df['Sector'] != 'Global']
 
-    # 可视化对比
+    # Visual contrast
     plt.figure(figsize=(15, 10))
 
-    # 误差指标对比
+    # Error index comparison
     plt.subplot(2, 1, 1)
     ax = sector_metrics.set_index('Sector')[['RMSE', 'MAE']].plot(kind='bar', alpha=0.8)
     plt.axhline(y=global_metrics['RMSE'].values[0], color='r', linestyle='--', label='Global RMSE')
@@ -203,7 +203,7 @@ def analyze_performance(metrics_df):
     plt.ylabel('Error Values')
     plt.legend()
 
-    # 全局模型特征重要性
+    # Global model feature importance
     plt.subplot(2, 1, 2)
     try:
         shap_global = pd.read_csv('shap_values_Global.csv')
