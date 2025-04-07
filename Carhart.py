@@ -127,7 +127,7 @@ def compute_carhart_factors(df):
 # Sector Processing
 # ---------------------------
 def identify_valid_sectors(df):
-    """ Screen samples enough for the industry"""
+    """ Screen industry of samples enough"""
     sector_counts = df['sector'].value_counts()
     return sector_counts[sector_counts >= MIN_SAMPLES_PER_SECTOR].index.tolist()
 
