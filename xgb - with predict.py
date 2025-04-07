@@ -11,9 +11,9 @@ from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
-# 设置全局字体为Times New Roman
+# Set the global font to Times New Roman
 plt.rcParams['font.family'] = 'Times New Roman'
-plt.rcParams['font.size'] = 12  # 设置全局字体大小
+plt.rcParams['font.size'] = 12  # Set the global font size
 # ---------------------------
 # Global Configuration
 # ---------------------------
@@ -202,23 +202,23 @@ def evaluate_model(model, X_test, y_test, sector_name, n_samples):
 
 def generate_prediction_plot(y_test, y_pred, sector_name, metrics):
     """Generate prediction vs actual comparison plot using scatter plot"""
-    # 空数据检查
+    # Null data check
     if len(y_test) == 0 or len(y_pred) == 0:
-        print(f"警告：{sector_name} 测试数据为空，跳过绘图")
+        print(f"Warning：{sector_name} Test data is empty, skip drawing")
         return
 
     plt.figure(figsize=(10, 8), dpi=300)
 
     try:
-        # 绘制散点图
+        # Plot scatter plots
         plt.scatter(y_test, y_pred, alpha=0.6, edgecolors='w', linewidth=0.5, s=80)
 
-        # 添加理想预测线（y = x）
+        # Add ideal prediction line（y = x）
         max_val = max(np.max(y_test), np.max(y_pred))
         min_val = min(np.min(y_test), np.min(y_pred))
         plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2, label='Ideal Prediction')
 
-        # 添加标注
+        # Add annotation
         textstr = '\n'.join((
             f'RMSE: {metrics[2]:.4f}',
             f'MAE: {metrics[3]:.4f}',
@@ -229,37 +229,37 @@ def generate_prediction_plot(y_test, y_pred, sector_name, metrics):
         plt.gca().text(0.05, 0.95, textstr, transform=plt.gca().transAxes,
                        fontsize=12, verticalalignment='top', bbox=props)
 
-        # 格式设置
+        # Format Settings
         plt.title(f'{sector_name}', fontsize=14, pad=20)
         plt.xlabel('Actual Real Return', fontsize=12, labelpad=10)
         plt.ylabel('Predicted Real Return', fontsize=12, labelpad=10)
         plt.legend(frameon=True, loc='lower right', fontsize=10)
         plt.grid(True, linestyle='--', alpha=0.5)
 
-        # 创建目录
+        # Create directory
         plot_dir = Path("prediction_plots")
         try:
             plot_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
-            print(f"目录创建失败: {str(e)}")
+            print(f"Directory creation failure: {str(e)}")
             return
 
-        # 文件名处理
+        # File name processing
         import re
         safe_name = re.sub(r'[\\/*?:"<>|]', "_", sector_name)
 
-        # 保存图像
+        # Save image
         try:
             plt.savefig(plot_dir / f"{safe_name}_scatter_predictions.png",
                         bbox_inches='tight', pad_inches=0.3)
-            print(f"成功保存 {sector_name} 散点图")
+            print(f"Successful preservation {sector_name} scatter diagram")
         except Exception as e:
-            print(f"图像保存失败: {str(e)}")
+            print(f"Image saving failure: {str(e)}")
 
     except Exception as e:
-        print(f"绘图过程中发生错误: {str(e)}")
+        print(f"An error occurred during drawing: {str(e)}")
     finally:
-        plt.close()  # 确保资源释放
+        plt.close()  # Ensure resource release 
 
 
 def save_model_artifacts(model, preprocessor, sector_name):
