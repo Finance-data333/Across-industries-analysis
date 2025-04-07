@@ -5,9 +5,9 @@ import seaborn as sns
 from sklearn.preprocessing import LabelEncoder
 import os
 
-# 设置全局字体为Times New Roman
+# Set the global font to Times New Roman
 plt.rcParams['font.family'] = 'Times New Roman'
-plt.rcParams['font.size'] = 12  # 设置全局字体大小
+plt.rcParams['font.size'] = 12  # Set the global font size
 # ---------------------------
 # Data Processing
 # ---------------------------
